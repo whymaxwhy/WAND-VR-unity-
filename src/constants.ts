@@ -1,5 +1,6 @@
 
 
+
 import { House, WandType, MacroCommand, SpellDetails } from './types';
 
 // FIX: Corrected typo in 'GRYFFINDOR' and ensured all house names are strings.
@@ -322,3 +323,10 @@ SPELL_LIST.forEach(spellName => {
     };
   }
 });
+
+// Added constants for local storage keys
+export const LOCAL_STORAGE_KEY_SAVED_VFX = 'wand_saved_vfx';
+export const LOCAL_STORAGE_KEY_SPELLBOOK = 'wand_spellbook';
+export const LOCAL_STORAGE_KEY_CUSTOM_SPELLS = 'wand_custom_spells';
+export const LOCAL_STORAGE_KEY_CASTING_HISTORY = 'wand_casting_history';
+export const LOCAL_STORAGE_KEY_TUTORIAL = 'wand_tutorial_completed';

@@ -1,4 +1,5 @@
 
+
 // Fix: Moved Web Bluetooth API types here to make them globally available.
 // Add minimal type definitions for Web Bluetooth API to resolve TypeScript errors.
 // This is a workaround for the environment not having these types available.
@@ -216,4 +217,14 @@ export interface CastingHistoryEntry {
   id: number;
   name: string;
   timestamp: string;
+}
+
+export interface LiveEvent {
+    message: string;
+    type: 'info' | 'success' | 'processing' | 'error';
+}
+
+export interface WriteQueueItem {
+    payload: Uint8Array;
+    silent: boolean;
 }

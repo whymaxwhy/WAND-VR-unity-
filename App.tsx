@@ -1,9 +1,47 @@
+
+
 import React from 'react';
 // FIX: WandTypes is exported from types.ts, not constants.ts.
-import { WBDLProtocol, WBDLPayloads, SPELL_LIST, WAND_THRESHOLDS, Houses, WAND_TYPE_IDS, SPELL_DETAILS_DATA } from './constants';
+import { 
+    WBDLProtocol, 
+    WBDLPayloads, 
+    SPELL_LIST, 
+    WAND_THRESHOLDS, 
+    Houses, 
+    WAND_TYPE_IDS, 
+    SPELL_DETAILS_DATA,
+    LOCAL_STORAGE_KEY_SAVED_VFX,
+    LOCAL_STORAGE_KEY_SPELLBOOK,
+    LOCAL_STORAGE_KEY_CUSTOM_SPELLS,
+    LOCAL_STORAGE_KEY_CASTING_HISTORY,
+    LOCAL_STORAGE_KEY_TUTORIAL
+} from './constants';
 // FIX: Added RawPacket to the import list from types.ts.
 import { WandTypes, RawPacket, ConnectionState } from './types';
-import type { LogEntry, LogType, VfxCommand, VfxCommandType, Spell, IMUReading, GestureState, DeviceType, WandType, WandDevice, WandDeviceType, House, SpellDetails, SpellUse, ExplorerService, ExplorerCharacteristic, BleEvent, MacroCommand, ButtonThresholds, CastingHistoryEntry } from './types';
+import type { 
+    LogEntry, 
+    LogType, 
+    VfxCommand, 
+    VfxCommandType, 
+    Spell, 
+    IMUReading, 
+    GestureState, 
+    DeviceType, 
+    WandType, 
+    WandDevice, 
+    WandDeviceType, 
+    House, 
+    SpellDetails, 
+    SpellUse, 
+    ExplorerService, 
+    ExplorerCharacteristic, 
+    BleEvent, 
+    MacroCommand, 
+    ButtonThresholds, 
+    CastingHistoryEntry,
+    LiveEvent,
+    WriteQueueItem
+} from './types';
 import Scripter from './Scripter';
 import WizardingClass from './WizardingClass';
 import { SpellEditor } from './SpellEditor';
@@ -14,6 +52,34 @@ const getTimestamp = () => new Date().toLocaleTimeString('en-US', { hour12: fals
 const bytesToHex = (bytes: Uint8Array) => Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ');
 // FIX: Corrected typo in TextDecoder constructor.
 const textDecoder = new TextDecoder('utf-8');
+
+const parseImuPacket = (data: Uint8Array): IMUReading[] => {
+    // Assumes standard 20-byte packet structure for reverse-engineered wand
+    // Byte 0: Sequence/Chunk Index
+    // Byte 1-12: Data (Ax, Ay, Az, Gx, Gy, Gz) as Int16LE
+    if (data.length < 13) return [];
+    
+    const view = new DataView(data.buffer);
+    const seq = view.getUint8(0);
+    
+    // Scale factors (approximations for visualization)
+    const accScale = 8192.0; 
+    const gyroScale = 16.4; 
+
+    const ax = view.getInt16(1, true) / accScale;
+    const ay = view.getInt16(3, true) / accScale;
+    const az = view.getInt16(5, true) / accScale;
+
+    const gx = view.getInt16(7, true) / gyroScale;
+    const gy = view.getInt16(9, true) / gyroScale;
+    const gz = view.getInt16(11, true) / gyroScale;
+
+    return [{
+        chunk_index: seq,
+        acceleration: { x: ax, y: ay, z: az },
+        gyroscope: { x: gx, y: gy, z: gz }
+    }];
+};
 
 /**
  * Converts a HEX color to the CIE 1931 XY color space.
@@ -173,11 +239,224 @@ const PencilAltIcon = () => (
 
 
 // --- UI COMPONENTS ---
-// ... (previous UI components remain the same) ...
-// ... (re-exporting components for brevity if unchanged, but for full replacement I include them) ...
 
-// ... [Truncated for brevity, assuming standard components are unchanged] ...
-// To ensure the fix is applied, I will output the relevant sections completely.
+const Modal = ({ title, onClose, children }: any) => (
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="bg-slate-800 rounded-lg p-6 max-w-lg w-full m-4 border border-slate-700 shadow-xl">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-xl font-bold text-white">{title}</h3>
+        <button onClick={onClose} className="text-slate-400 hover:text-white">&times;</button>
+      </div>
+      <div>{children}</div>
+    </div>
+  </div>
+);
+
+const TutorialModal = ({ onFinish }: { onFinish: () => void }) => (
+    <Modal title="Welcome to Wand Controller" onClose={onFinish}>
+        <div className="space-y-4 text-slate-300">
+            <p>Connect your BLE Wand and Box to get started.</p>
+            <p>Use the <strong>Device Manager</strong> to scan and pair.</p>
+            <p>Explore <strong>Wizarding Class</strong> to practice spells.</p>
+            <button onClick={onFinish} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded">Got it!</button>
+        </div>
+    </Modal>
+);
+
+const SpellDetailsCard = ({ spellDetails, onCastOnWand, onCastOnBox, isWandConnected, isBoxConnected }: any) => {
+    if(!spellDetails) return null;
+    return (
+        <div className="text-slate-300 space-y-4">
+            <p className="italic text-slate-400">{spellDetails.description}</p>
+            <div className="grid grid-cols-2 gap-4">
+                <button 
+                    disabled={!isWandConnected}
+                    onClick={() => onCastOnWand(spellDetails)}
+                    className="bg-indigo-600/50 hover:bg-indigo-600 p-2 rounded disabled:opacity-50">
+                    Cast on Wand
+                </button>
+                <button 
+                     disabled={!isBoxConnected}
+                     onClick={() => onCastOnBox(spellDetails)}
+                     className="bg-purple-600/50 hover:bg-purple-600 p-2 rounded disabled:opacity-50">
+                    Cast on Box
+                </button>
+            </div>
+            {spellDetails.spell_uses && (
+                <div>
+                    <h4 className="font-semibold text-white mb-1">Uses:</h4>
+                    <ul className="list-disc pl-5">
+                        {spellDetails.spell_uses.map((use: any, i: number) => <li key={i}>{use.name}</li>)}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const TabButton = ({ Icon, label, onClick, isActive }: any) => (
+    <button
+        onClick={onClick}
+        className={`flex items-center w-full px-4 py-3 text-sm font-medium rounded-md transition-colors ${isActive ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}
+    >
+        <Icon />
+        <span>{label}</span>
+    </button>
+);
+
+const SpellBook = ({ spellBook, spellFilter, setSpellFilter, castingHistory }: any) => (
+    <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 h-full flex flex-col">
+        <h2 className="text-lg font-semibold mb-2">Spellbook</h2>
+        <input 
+            type="text" 
+            placeholder="Filter spells..." 
+            value={spellFilter}
+            onChange={e => setSpellFilter(e.target.value)}
+            className="bg-slate-900 border border-slate-700 rounded p-2 mb-2 text-sm w-full"
+        />
+        <div className="flex-grow overflow-y-auto space-y-1">
+            {spellBook.filter((s:any) => s.name.toLowerCase().includes(spellFilter.toLowerCase())).map((s:any, i:number) => (
+                <div key={i} className="text-sm p-2 bg-slate-700/50 rounded flex justify-between">
+                    <span>{s.name}</span>
+                </div>
+            ))}
+            {spellBook.length === 0 && <p className="text-slate-500 text-sm">No spells discovered yet.</p>}
+        </div>
+    </div>
+);
+
+const LogView = ({ logs }: { logs: LogEntry[] }) => (
+    <div className="h-64 overflow-y-auto font-mono text-xs space-y-1 bg-slate-900 p-2 rounded">
+        {logs.slice().reverse().map(log => (
+            <div key={log.id} className={
+                log.type === 'ERROR' ? 'text-red-400' :
+                log.type === 'SUCCESS' ? 'text-green-400' :
+                log.type === 'DATA_IN' ? 'text-blue-300' :
+                log.type === 'DATA_OUT' ? 'text-orange-300' : 'text-slate-300'
+            }>
+                <span className="opacity-50">[{log.timestamp}]</span> {log.message}
+            </div>
+        ))}
+    </div>
+);
+
+const DeviceManager = ({ wandConnectionState, onConnectWand, boxConnectionState, onConnectBox, wandBatteryLevel, boxBatteryLevel, wandDetails, boxDetails, isTvBroadcastEnabled, setIsTvBroadcastEnabled, userHouse, setUserHouse, userPatronus, setUserPatronus, isHueEnabled, setIsHueEnabled, hueBridgeIp, setHueBridgeIp, hueUsername, setHueUsername, hueLightId, setHueLightId, saveHueSettings, onResetTutorial, onSendBoxTestMacro, onRequestBoxAddress }: any) => (
+    <div className="space-y-6 overflow-y-auto p-2">
+        <h3 className="text-xl font-semibold">Device Manager</h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-slate-900/50 p-4 rounded border border-slate-700">
+                <h4 className="font-bold text-lg mb-2">Wand</h4>
+                <div className="flex items-center justify-between mb-4">
+                    <span className={`px-2 py-1 rounded text-xs font-bold ${wandConnectionState === 'Connected' ? 'bg-green-900 text-green-300' : 'bg-slate-700 text-slate-400'}`}>
+                        {wandConnectionState}
+                    </span>
+                    <BatteryIcon level={wandBatteryLevel} />
+                </div>
+                {wandDetails && (
+                    <div className="text-xs space-y-1 text-slate-400 mb-4">
+                        <p>Name: {wandDetails.bleName}</p>
+                        <p>Type: {wandDetails.wandType}</p>
+                    </div>
+                )}
+                <button onClick={onConnectWand} disabled={wandConnectionState === 'Connected'} className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-600 text-white py-2 rounded">
+                    {wandConnectionState === 'Connected' ? 'Connected' : 'Connect Wand'}
+                </button>
+            </div>
+
+            <div className="bg-slate-900/50 p-4 rounded border border-slate-700">
+                <h4 className="font-bold text-lg mb-2">Box</h4>
+                 <div className="flex items-center justify-between mb-4">
+                    <span className={`px-2 py-1 rounded text-xs font-bold ${boxConnectionState === 'Connected' ? 'bg-green-900 text-green-300' : 'bg-slate-700 text-slate-400'}`}>
+                        {boxConnectionState}
+                    </span>
+                    <BatteryIcon level={boxBatteryLevel} />
+                </div>
+                <button onClick={onConnectBox} disabled={boxConnectionState === 'Connected'} className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-600 text-white py-2 rounded">
+                    {boxConnectionState === 'Connected' ? 'Connected' : 'Connect Box'}
+                </button>
+            </div>
+        </div>
+
+        {/* Settings Area */}
+        <div className="bg-slate-900/50 p-4 rounded border border-slate-700 space-y-4">
+            <h4 className="font-bold">Integration Settings</h4>
+             <div className="flex items-center space-x-2">
+                <input type="checkbox" checked={isTvBroadcastEnabled} onChange={e => setIsTvBroadcastEnabled(e.target.checked)} />
+                <label>Enable TV Broadcast</label>
+             </div>
+             <div>
+                <label className="block text-xs">House</label>
+                <select value={userHouse} onChange={e => setUserHouse(e.target.value)} className="bg-slate-800 p-1 rounded w-full">
+                    {Houses.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+             </div>
+        </div>
+    </div>
+);
+
+const ControlHub = ({ lastSpell, gestureState, liveEvent, spellDetails }: any) => (
+    <div className="text-center space-y-8 py-8">
+        <h3 className="text-2xl font-bold text-white">Control Hub</h3>
+        <div className="bg-slate-900/50 inline-block p-8 rounded-full border-4 border-indigo-500/30">
+             <div className="text-sm text-slate-400 uppercase tracking-widest mb-2">Status</div>
+             <div className="text-3xl font-bold text-indigo-300 animate-pulse">{gestureState}</div>
+        </div>
+
+        {lastSpell && (
+            <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 max-w-md mx-auto">
+                <h4 className="text-slate-400 text-sm mb-1">Last Spell Cast</h4>
+                <div className="text-4xl font-serif text-yellow-400 mb-2">{lastSpell}</div>
+                {spellDetails && <p className="text-slate-300 italic">{spellDetails.description}</p>}
+            </div>
+        )}
+        
+        {liveEvent && (
+            <div className={`p-4 rounded-lg inline-block ${liveEvent.type === 'success' ? 'bg-green-900/50 text-green-300' : 'bg-slate-800 text-white'}`}>
+                {liveEvent.message}
+            </div>
+        )}
+    </div>
+);
+
+const SpellCompendium = ({ spellBook, onSelectSpell }: any) => (
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 overflow-y-auto h-full p-2">
+        {SPELL_LIST.map(spell => {
+            const isDiscovered = spellBook.some((s:any) => s.name === spell.toUpperCase());
+            return (
+                <div key={spell} onClick={() => onSelectSpell(spell)} className={`p-4 rounded border cursor-pointer hover:bg-slate-700 transition ${isDiscovered ? 'bg-indigo-900/30 border-indigo-500/50' : 'bg-slate-900 border-slate-700 opacity-50'}`}>
+                    <div className="font-bold text-sm truncate">{spell.replace(/_/g, ' ')}</div>
+                    <div className="text-xs text-slate-400">{isDiscovered ? 'Discovered' : 'Unknown'}</div>
+                </div>
+            );
+        })}
+    </div>
+);
+
+const BleExplorer = ({ onScan, isExploring, device, services }: any) => (
+    <div className="h-full flex flex-col p-2">
+        <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xl font-bold">BLE Explorer</h3>
+            <button onClick={onScan} disabled={isExploring} className="bg-blue-600 px-4 py-2 rounded">{isExploring ? 'Scanning...' : 'Scan Any Device'}</button>
+        </div>
+        {device && (
+            <div className="bg-slate-900 p-4 rounded border border-slate-700 overflow-auto">
+                <h4 className="font-bold text-lg text-green-400 mb-4">{device.name || 'Unknown Device'} ({device.id})</h4>
+                {services.map((s: any, i: number) => (
+                    <div key={i} className="mb-4 ml-4">
+                        <div className="text-yellow-200 font-mono text-sm">Service: {s.uuid}</div>
+                        {s.characteristics.map((c: any, j: number) => (
+                            <div key={j} className="ml-4 text-xs font-mono text-slate-400">
+                                - Char: {c.uuid} {Object.keys(c.properties).filter(k=>c.properties[k]).map(k => `[${k}]`).join('')}
+                            </div>
+                        ))}
+                    </div>
+                ))}
+            </div>
+        )}
+        {!device && <div className="text-slate-500 text-center mt-10">Scan to inspect raw BLE services.</div>}
+    </div>
+);
 
 // FIX: Define a props interface for the Diagnostics component to avoid using `any` and fix type errors.
 interface DiagnosticsProps {
@@ -310,11 +589,8 @@ const Diagnostics: React.FC<DiagnosticsProps> = ({
     );
 };
 
-// ... [Rest of DeviceManager components remain same] ...
-
 // --- MAIN APP ---
 export default function App() {
-  // ... [State declarations same as before] ...
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
   const [wandConnectionState, setWandConnectionState] = React.useState<ConnectionState>(ConnectionState.DISCONNECTED);
   const [wandDetails, setWandDetails] = React.useState<WandDevice | null>(null);
@@ -365,7 +641,7 @@ export default function App() {
   const [compendiumSpellDetails, setCompendiumSpellDetails] = React.useState<SpellDetails | null>(null);
   const [commandDelay_ms, setCommandDelay_ms] = React.useState(20);
   const [showTutorial, setShowTutorial] = React.useState(false);
-  const [liveEvent, setLiveEvent] = React.useState<LiveEvent>(null);
+  const [liveEvent, setLiveEvent] = React.useState<LiveEvent | null>(null);
   const [writeQueue, setWriteQueue] = React.useState<WriteQueueItem[]>([]);
   const isWriting = React.useRef(false);
   const [boxWriteQueue, setBoxWriteQueue] = React.useState<WriteQueueItem[]>([]);
@@ -400,7 +676,6 @@ export default function App() {
       });
   }, []);
 
-  // ... [useEffect hooks unchanged] ...
   React.useEffect(() => {
     try {
       const savedVFXJSON = localStorage.getItem(LOCAL_STORAGE_KEY_SAVED_VFX);

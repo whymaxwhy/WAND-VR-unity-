@@ -218,3 +218,13 @@ export interface CastingHistoryEntry {
   name: string;
   timestamp: string;
 }
+
+export interface LiveEvent {
+    message: string;
+    type: 'info' | 'success' | 'processing' | 'error';
+}
+
+export interface WriteQueueItem {
+    payload: Uint8Array;
+    silent: boolean;
+}
