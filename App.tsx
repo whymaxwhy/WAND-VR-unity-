@@ -1,6 +1,3 @@
-
-
-
 import React from 'react';
 // FIX: WandTypes is exported from types.ts, not constants.ts.
 import { WBDLProtocol, WBDLPayloads, SPELL_LIST, WAND_THRESHOLDS, Houses, WAND_TYPE_IDS, SPELL_DETAILS_DATA } from './constants';
@@ -1993,9 +1990,11 @@ export default function App() {
             if (isClientSideGestureDetectionEnabled && gestureState === 'Idle' && !clientSideGestureDetected) {
                 for (const reading of imuReadings) {
                     const { x, y, z } = reading.acceleration;
-// FIX: Replace Math.pow with direct multiplication for squaring. This avoids potential obscure type errors with certain TypeScript configurations that may not correctly infer the return type of Math.pow in complex expressions, addressing the arithmetic operation error.
-                    // FIX: Ensure x, y, z are treated as numbers to avoid TS errors
-                    const magnitude = Math.sqrt((x || 0) * (x || 0) + (y || 0) * (y || 0) + (z || 0) * (z || 0));
+                    // FIX: Explicitly cast to number to satisfy TypeScript strict checks on arithmetic operations.
+                    const valX: number = x ? Number(x) : 0;
+                    const valY: number = y ? Number(y) : 0;
+                    const valZ: number = z ? Number(z) : 0;
+                    const magnitude = Math.sqrt(valX * valX + valY * valY + valZ * valZ);
                     if (magnitude > gestureThreshold) {
                         setClientSideGestureDetected(true);
                         addLog('SUCCESS', `Client-side gesture detected! Accel magnitude: ${magnitude.toFixed(2)}g (Threshold: ${gestureThreshold}g)`);
